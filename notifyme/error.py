@@ -1,7 +1,9 @@
 error_hierarchy = {
     "BaseError": {
-        "ValidationError":{
-
+        "ValidationError": {
+        },
+        "AuthenticationError": {
+            "AuthFailed": {},
         }
     }
 }
@@ -10,13 +12,20 @@ error_hierarchy = {
 class BaseError(Exception):
     pass
 
+
 class ValidationError(BaseError):
     pass
 
+class AuthenticationError(BaseError):
+    pass
+
+class AuthFailed(AuthenticationError):
+    pass
 
 __all__ = [
     "error_hierarchy",
     "BaseError",
-    "ValidationError"
+    "ValidationError",
+    "AuthenticationError",
+    "AuthFailed"
 ]
-
