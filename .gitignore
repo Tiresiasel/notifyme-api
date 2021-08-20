@@ -140,6 +140,7 @@ cython_debug/
 
 # config
 config.py
+config.json
 
 # pycharm
 .idea
