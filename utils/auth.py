@@ -1,6 +1,6 @@
 from flask_httpauth import HTTPTokenAuth
-from notifyme.error import *
-from notifyme import app
+from modules.error import *
+from modules import app
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import BadSignature, SignatureExpired
 

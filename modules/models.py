@@ -1,4 +1,4 @@
-from notifyme import db,bcrypt
+from modules import db,bcrypt
 
 
 class JSONComposer:
@@ -21,7 +21,7 @@ class UserModel(db.Model, JSONComposer):
     score = db.Column(db.Integer)
 
     def __repr__(self):
-        return f"User: {self.name}"
+        return f"User: {self.username}"
 
 
 class NewsModel(db.Model, JSONComposer):
@@ -33,9 +33,11 @@ class NewsModel(db.Model, JSONComposer):
     description = db.Column(db.String)
     cover = db.Column(db.String)
     source = db.Column(db.String)
+    news_type = db.Column(db.String)
     spider_time = db.Column(db.DateTime)
     publish_time = db.Column(db.DateTime)
     source_code = db.Column(db.String)
+    uuid = db.Column(db.String)
 
     def __repr__(self):
         return f"News: {self.title}"
@@ -45,7 +47,7 @@ class NewsKeywordModel(db.Model, JSONComposer):
     __tablename__ = "news_keyword"
     id = db.Column(db.Integer, primary_key=True, nullable=False)
     keyword = db.Column(db.String)
-    news_id = db.Column(db.Integer)
+    news_uuid = db.Column(db.String)
 
     def __repr__(self):
         return f"news_id: {self.news_id}, keyword_id: {self.keyword}"

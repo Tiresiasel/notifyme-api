@@ -1,18 +1,19 @@
 import random
 from flask import jsonify, request
-from notifyme import app, db, api, redis_client
-from notifyme.models import NewsModel, NewsKeywordModel, UserModel, UserKeywordModel
+from modules import app, db, api, redis_client
+from modules.models import NewsModel, NewsKeywordModel, UserModel, UserKeywordModel
 from flask_restful import Resource, reqparse
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import BadSignature, SignatureExpired
-from notifyme.error import *
+from modules.error import *
 from utils.auth import auth
 from utils.email_template import CodeEmailContent
 from utils.send_email import SendEmail
+from flask_cors import cross_origin
 
 
 def _check_if_email_exists(email: str) -> bool:
-    news_ids = UserModel.query.filter_by(email=email)
+    news_ids = UserModel.query.filter_by(email=email).all()
     if news_ids:
         return True
     else:
@@ -42,7 +43,15 @@ class UserToken:
         return data[0]['uid']
 
 
-class News(Resource):
+class CORSResource(Resource):
+    def options(self):
+        return {'Allow': '*'}, 200, {'Access-Control-Allow-Origin': '*',
+                                     'Access-Control-Allow-Methods': 'HEAD, OPTIONS, GET, POST, DELETE, PUT',
+                                     'Access-Control-Allow-Headers': 'Content-Type, Content-Length, Authorization, Accept, X-Requested-With , yourHeaderField',
+                                     }
+
+
+class News(CORSResource):
     def __init__(self):
         self.parser = reqparse.RequestParser()
         self.parser.add_argument('keyword', type=str, required=True)
@@ -70,28 +79,35 @@ class News(Resource):
         return {"code": "200", "status": "OK", "data": news_list}
 
 
-class UserRegister(Resource):
+class UserEmailExist(CORSResource):
     def __init__(self):
         self.parser = reqparse.RequestParser()
         self.parser.add_argument("email", type=str, required=True)
-        self.parser.add_argument("password_hash", type=str, required=True)
-        self.parser.add_argument("username", type=str, required=True)
 
     def get(self):
         # 返回该邮箱是否存在
         data = self.parser.parse_args()
         email = data.get("email")
-        if self._check_if_email_exists(email):
-            return {"code": 406, "status": "Not Acceptable: user already exists"}
+        status = _check_if_email_exists(email)
+        if _check_if_email_exists(email):
+            return {"code": 200, "status": "OK", "data": {"email_exist": status}}
         else:
-            return {"code": 200, "status": "OK"}
+            return {"code": 200, "status": "OK", "data": {"email_exist": status}}
+
+
+class UserRegister(CORSResource):
+    def __init__(self):
+        self.parser = reqparse.RequestParser()
+        self.parser.add_argument("email", type=str, required=True)
+        self.parser.add_argument("password_hash", type=str)
+        self.parser.add_argument("username", type=str)
 
     def post(self):
         data = self.parser.parse_args()
         email = data.get("email")
         username = data.get("username")
         password_hash = data.get("password_hash")
-        if self._check_if_email_exists(email=email):  # 如果该邮件在数据库内存在
+        if _check_if_email_exists(email=email):  # 如果该邮件在数据库内存在
             return {"code": 406, "status": "Not Acceptable: user already exists"}
         else:
             user_to_add = UserModel(username=username, email=email, password_hash=password_hash)
@@ -100,7 +116,7 @@ class UserRegister(Resource):
             return {"code": 201, "status": "Created"}
 
 
-class UserLogin(Resource):
+class UserLogin(CORSResource):
     def __init__(self):
         self.parser = reqparse.RequestParser()
         self.parser.add_argument("email", type=str, required=True)
@@ -132,7 +148,7 @@ class UserLogin(Resource):
             return {"code": 401, "status": "Unauthorized"}
 
 
-class UserSubscriptionKeyword(Resource, UserToken):
+class UserSubscriptionKeyword(CORSResource, UserToken):
     def __init__(self):
         super().__init__()
         self.parser = reqparse.RequestParser()
@@ -172,7 +188,7 @@ class UserSubscriptionKeyword(Resource, UserToken):
             return {"code": 501, "status": "Not Implemented"}
 
 
-class UserSubscriptionChannel(Resource, UserToken):
+class UserSubscriptionChannel(CORSResource, UserToken):
     def __init__(self):
         super().__init__()
         self.parser = reqparse.RequestParser()
@@ -187,7 +203,7 @@ class UserSubscriptionChannel(Resource, UserToken):
         return {"code": 200, "status": "OK"}
 
 
-class UserForgetPassword(Resource):
+class UserForgetPassword(CORSResource):
     # 获取忘记密码的验证码
     def __init__(self):
         self.parser = reqparse.RequestParser()
@@ -219,7 +235,7 @@ class UserForgetPassword(Resource):
             return {"code": 406, "status": "Not Acceptable: user already exists"}
 
 
-class UserForgetPasswordAuth(Resource):
+class UserForgetPasswordAuth(CORSResource):
     def __init__(self):
         self.parser = reqparse.RequestParser()
         self.parser.add_argument("email")
@@ -232,17 +248,20 @@ class UserForgetPasswordAuth(Resource):
         # 从redis里获取该用户的验证码
         redis_code = redis_client.get(email).decode("utf-8")
         if code == redis_code:
-            return {"code":200,"status":"OK"}
+            return {"code": 200, "status": "OK"}
         else:
             return {"code": 403, "status": "Forbidden"}
+
 
 api.add_resource(News, "/api/news")
 api.add_resource(UserRegister, "/api/user/register")
 api.add_resource(UserLogin, "/api/user/login")
+api.add_resource(UserEmailExist,"/api/user/email")
 api.add_resource(UserSubscriptionKeyword, "/api/user/subscription/keyword")
 api.add_resource(UserSubscriptionChannel, "/api/user/subscription/channel")
-api.add_resource(UserForgetPassword,"/api/user/forget-password")
-api.add_resource(UserForgetPasswordAuth,"/api/user/forget-password/auth")
+api.add_resource(UserForgetPassword, "/api/user/forget-password")
+api.add_resource(UserForgetPasswordAuth, "/api/user/forget-password/auth")
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", debug=True, port=5000)
+    app.run(host="127.0.0.1", debug=True, port=5050)
+    # print(_check_if_email_exists(email="1275021527@12qq.com"))
