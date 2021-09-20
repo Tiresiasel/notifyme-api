@@ -1,5 +1,8 @@
+import logging
 import random
-from flask import jsonify, request
+from flask import request
+from sqlalchemy.exc import IntegrityError
+
 from modules import app, db, api, redis_client
 from modules.models import NewsModel, NewsKeywordModel, UserModel, UserKeywordModel
 from flask_restful import Resource, reqparse
@@ -9,7 +12,6 @@ from modules.error import *
 from utils.auth import auth
 from utils.email_template import CodeEmailContent
 from utils.send_email import SendEmail
-from flask_cors import cross_origin
 
 
 def _check_if_email_exists(email: str) -> bool:
@@ -27,24 +29,28 @@ class UserToken:
 
     def __init__(self):
         self.token = str(request.headers.get('Authorization')).split(' ')[-1]
-        self.user_id = self._get_user_id_from_token()
+        self._get_user_id_from_token(self.token)
 
-    def _get_user_id_from_token(self):
+    def _get_user_id_from_token(self, token):
         """解析令牌信息"""
         s = Serializer(app.config['SECRET_KEY'])
-        try:
-            data = s.loads(self.token, return_header=True)
-        # token过期
-        except SignatureExpired:
-            raise AuthFailed(msg='token is expired', error_code=1001)
-        # 错误token异常
-        except BadSignature:
-            raise AuthFailed(msg='token is invalid', error_code=1002)
-        return data[0]['uid']
+        if self.token == "None":
+            return None  # 处理options请求时的情况
+        else:
+            try:
+                data = s.loads(self.token, return_header=True)  # 这一行代码会导致前端跨域的问题
+                self.user_id = data[0]['uid']
+                # token过期
+            except SignatureExpired:
+                raise AuthFailed('token is expired')
+            # 错误token异常
+            except BadSignature:
+                raise AuthFailed('token is invalid')
 
 
 class CORSResource(Resource):
-    def options(self):
+    @staticmethod
+    def options():
         return {'Allow': '*'}, 200, {'Access-Control-Allow-Origin': '*',
                                      'Access-Control-Allow-Methods': 'HEAD, OPTIONS, GET, POST, DELETE, PUT',
                                      'Access-Control-Allow-Headers': 'Content-Type, Content-Length, Authorization, Accept, X-Requested-With , yourHeaderField',
@@ -64,7 +70,7 @@ class News(CORSResource):
         keyword = data.get("keyword")
         limit = data.get("limit")
 
-        news_ids = NewsKeywordModel.query.with_entities(NewsKeywordModel.news_id) \
+        news_ids = NewsKeywordModel.query.with_entities(NewsKeywordModel.news_uuid) \
             .filter_by(keyword=keyword)
         news_id = list(map(lambda x: x[0], news_ids))
         if limit:
@@ -99,18 +105,18 @@ class UserRegister(CORSResource):
     def __init__(self):
         self.parser = reqparse.RequestParser()
         self.parser.add_argument("email", type=str, required=True)
-        self.parser.add_argument("password_hash", type=str)
-        self.parser.add_argument("username", type=str)
+        self.parser.add_argument("password", type=str)
+        # self.parser.add_argument("username", type=str)
 
     def post(self):
         data = self.parser.parse_args()
         email = data.get("email")
-        username = data.get("username")
-        password_hash = data.get("password_hash")
+        # username = data.get("username")
+        password_hash = data.get("password")
         if _check_if_email_exists(email=email):  # 如果该邮件在数据库内存在
             return {"code": 406, "status": "Not Acceptable: user already exists"}
         else:
-            user_to_add = UserModel(username=username, email=email, password_hash=password_hash)
+            user_to_add = UserModel(email=email, password_hash=password_hash)
             db.session.add(user_to_add)
             db.session.commit()
             return {"code": 201, "status": "Created"}
@@ -120,7 +126,7 @@ class UserLogin(CORSResource):
     def __init__(self):
         self.parser = reqparse.RequestParser()
         self.parser.add_argument("email", type=str, required=True)
-        self.parser.add_argument("password_hash", type=str, required=True)
+        self.parser.add_argument("password", type=str, required=True)
 
     @staticmethod
     def _check_if_password_hash_equals(email: str, password_hash: str) -> bool:
@@ -140,7 +146,7 @@ class UserLogin(CORSResource):
     def get(self):
         data = self.parser.parse_args()
         email = data.get("email")
-        password_hash = data.get("password_hash")
+        password_hash = data.get("password")
         if self._check_if_password_hash_equals(email=email, password_hash=password_hash):
             uid = UserModel.query.with_entities(UserModel.id).filter_by(email=email).first()[0]
             return {"code": 200, "status": "OK", "data": {"token": self._generate_auth_token(uid)}}
@@ -169,12 +175,16 @@ class UserSubscriptionKeyword(CORSResource, UserToken):
     def post(self):
         data = self.parser.parse_args()
         keywords_list = eval(data["keywords"])  # keywords是一个列表的字符串
+        print(keywords_list)
         operation = data["operation"]
         if operation.lower() == "add":  # 如果传入的参数是add，则添加keyword TODO 只能插入一次数据
             for keyword in keywords_list:
-                keyword_to_add = UserKeywordModel(keyword=keyword, user_id=self.user_id)
-                db.session.add(keyword_to_add)
-            db.session.commit()
+                try:
+                    keyword_to_add = UserKeywordModel(keyword=keyword, user_id=self.user_id)
+                    db.session.add(keyword_to_add)
+                    db.session.commit()
+                except IntegrityError:
+                    logging.warning("Keyword already exists")
             return {"code": 201, "status": "Created"}
         elif operation.lower() == "delete":  # 如果传入的值是delete，则删除keyword
             for keyword in keywords_list:
@@ -253,15 +263,104 @@ class UserForgetPasswordAuth(CORSResource):
             return {"code": 403, "status": "Forbidden"}
 
 
+class UserSubscriptionInfo:
+    @staticmethod
+    def get_subscription_uuid(user_id):
+        subscribed_keywords_list = UserKeywordModel.query.with_entities(UserKeywordModel.keyword) \
+            .filter_by(user_id=user_id).all()
+        subscribed_keywords_list = list(map(lambda x: x[0], subscribed_keywords_list))
+        subscribed_news_uuid_list = NewsKeywordModel.query.with_entities(NewsKeywordModel.news_uuid).filter(
+            NewsKeywordModel.keyword.in_(subscribed_keywords_list)).all()
+        subscribed_news_uuid_list = list(map(lambda x: x[0], subscribed_news_uuid_list))
+        return subscribed_news_uuid_list
+
+
+class UserSubscriptionNews(CORSResource, UserToken, UserSubscriptionInfo):
+    """
+    在前端展示中，分为news和message，其中news为长文章，message为快讯
+    news对应数据库里的article,selected和paper
+    message对应数据库里的news
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.parser = reqparse.RequestParser()
+        self.parser.add_argument("page")
+        self.parser.add_argument("limit")
+        self.parser.add_argument("type")
+
+    def _get_all_news(self, page_limit: int, page: int, news_type: str):
+        """
+        传入keywords_list，获取其中每个keywords_list中limit条数据
+        """
+        subscribed_news_uuid_list = self.get_subscription_uuid(self.user_id)
+        if news_type == "news":
+            type_list = ["article", "selected"]
+        elif news_type == "message":
+            type_list = ["news"]
+        subscribed_news_details = NewsModel.query.with_entities(NewsModel.news_uuid, NewsModel.title, NewsModel.url,
+                                                                NewsModel.description, NewsModel.publish_time,
+                                                                NewsModel.source).filter(
+            NewsModel.news_uuid.in_(subscribed_news_uuid_list), NewsModel.news_type.in_(type_list))[
+                                  (page - 1) * page_limit:page * page_limit]
+        dict_key = ("uuid", "title", "url", "description", "publish_time", "source")
+        news_list = []
+        for news in subscribed_news_details:  # 将news转化成字典
+            news_list.append(dict(zip(dict_key, news)))
+        for n, news in enumerate(news_list):  # 获取每一个news的所有keywords
+            keyword = NewsKeywordModel.query.with_entities(NewsKeywordModel.keyword).filter_by(
+                news_uuid=news["uuid"]).all()
+            keyword = set(keyword)
+            keyword = list(map(lambda x: x[0], keyword))
+            news_list[n]["keyword"] = keyword
+        return news_list
+
+    @auth.login_required
+    def get(self):
+        data = self.parser.parse_args()
+        page = int(data["page"])
+        page_limit = int(data["limit"])
+        news_type = data["type"]
+        news_list = self._get_all_news(page_limit=page_limit, page=page, news_type=news_type)
+        if news_list is []:
+            return {"code": 200, "status": "OK", "data": news_list}
+        else:
+            for news in news_list:
+                news["publish_time"] = news["publish_time"].strftime("%Y-%m-%d %H:%M")
+        return {"code": 200, "status": "OK", "data": news_list}
+
+
+class UserSubscriptionNewsNumber(CORSResource, UserToken, UserSubscriptionInfo):
+    def __init__(self):
+        super().__init__()
+        self.parser = reqparse.RequestParser()
+        self.parser.add_argument("type")
+
+    # 获取用户订阅的新闻在数据库里的数据量
+    @auth.login_required
+    def get(self):
+        data = self.parser.parse_args()
+        news_type = data["type"]
+        subscribed_news_uuid_list = self.get_subscription_uuid(self.user_id)
+        if news_type == "news":
+            type_list = ["article", "selected"]
+        elif news_type == "message":
+            type_list = ["news"]
+        subscribed_news_number = NewsModel.query.with_entities(NewsModel).filter(
+            NewsModel.news_uuid.in_(subscribed_news_uuid_list), NewsModel.news_type.in_(type_list)).count()
+        return {"code": 200, "status": "OK", "data": subscribed_news_number}
+
+
 api.add_resource(News, "/api/news")
 api.add_resource(UserRegister, "/api/user/register")
 api.add_resource(UserLogin, "/api/user/login")
-api.add_resource(UserEmailExist,"/api/user/email")
+api.add_resource(UserEmailExist, "/api/user/email")
 api.add_resource(UserSubscriptionKeyword, "/api/user/subscription/keyword")
 api.add_resource(UserSubscriptionChannel, "/api/user/subscription/channel")
 api.add_resource(UserForgetPassword, "/api/user/forget-password")
 api.add_resource(UserForgetPasswordAuth, "/api/user/forget-password/auth")
+api.add_resource(UserSubscriptionNews, "/api/user/subscription/news")
+api.add_resource(UserSubscriptionNewsNumber, "/api/user/subscription/news/number")
 
 if __name__ == '__main__':
     app.run(host="127.0.0.1", debug=True, port=5050)
-    # print(_check_if_email_exists(email="1275021527@12qq.com"))

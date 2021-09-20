@@ -24,7 +24,6 @@
       ```
       params:
         - email:str
-        - username:str
         - password_hash:str
       
       ret:

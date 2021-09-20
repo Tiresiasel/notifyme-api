@@ -21,4 +21,7 @@ db = SQLAlchemy(app)
 redis_client = FlaskRedis()
 redis_client.init_app(app)
 
-CORS(app, supports_credentials=True)
+CORS(app, supports_credentials=True, origins='*',
+     headers=['Content-Type', 'Authorization'],
+     expose_headers='Authorization',
+     method=["post","get","options"]	)

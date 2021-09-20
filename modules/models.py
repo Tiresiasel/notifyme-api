@@ -37,7 +37,7 @@ class NewsModel(db.Model, JSONComposer):
     spider_time = db.Column(db.DateTime)
     publish_time = db.Column(db.DateTime)
     source_code = db.Column(db.String)
-    uuid = db.Column(db.String)
+    news_uuid = db.Column(db.String)
 
     def __repr__(self):
         return f"News: {self.title}"
@@ -50,7 +50,7 @@ class NewsKeywordModel(db.Model, JSONComposer):
     news_uuid = db.Column(db.String)
 
     def __repr__(self):
-        return f"news_id: {self.news_id}, keyword_id: {self.keyword}"
+        return f"news_id: {self.news_uuid}, keyword_id: {self.keyword}"
 
 
 
