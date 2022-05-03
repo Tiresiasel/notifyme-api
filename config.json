@@ -7,7 +7,7 @@
   "to_header": "subscriber",
   "subject": "投资机构新闻",
   "smtp_host": "smtp.qq.com",
-  "smtp_password": "pyomcflfgpbreaia",
+  "smtp_password": "xxxxxx",
   "keyword_list": [
     "a16z",
     "dragonfly",
