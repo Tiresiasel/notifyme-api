@@ -6,6 +6,7 @@ from itsdangerous import BadSignature, SignatureExpired
 
 auth = HTTPTokenAuth()
 
+
 @auth.verify_token
 def verify_token(token):
     s = Serializer(app.config['SECRET_KEY'])
@@ -18,5 +19,3 @@ def verify_token(token):
         raise AuthFailed(msg='token is expired', error_code=1001)
     # 校验通过返回True
     return True
-
-

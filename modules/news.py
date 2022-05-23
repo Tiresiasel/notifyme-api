@@ -36,7 +36,7 @@ class NewsBase(ABC):
         self.get_all_news(keyword=keyword, limit_page=limit_page)
         self.update_all_news(keyword)
 
-    def update_all_news(self,keyword:str):
+    def update_all_news(self, keyword: str):
         total_news = len(self.raw_news_list)
         for n, news in enumerate(self.raw_news_list):
             news_title = self.get_news_title(news)
@@ -56,17 +56,17 @@ class NewsBase(ABC):
                                     description=news_description, cover=news_cover,
                                     source=news_source, news_type=news_type, spider_time=news_spider_time,
                                     publish_time=news_publish_time,
-                                    source_code=news_source_code, uuid = news_uuid)
+                                    source_code=news_source_code, uuid=news_uuid)
             db.session.add(news_to_add)
             # news_keyword的关系表更新
-            try: # 耦合得太严重，回头把他拆开
+            try:  # 耦合得太严重，回头把他拆开
                 news_keyword_to_add = NewsKeywordModel(keyword=keyword, news_uuid=news_uuid)
                 db.session.commit()
             except IntegrityError:
                 db.session.rollback()
                 logging.info(f"{news_title}已经在数据库内存在")
             except DataError:
-                db.session.rollback() # FIXME content格式不对的问题
+                db.session.rollback()  # FIXME content格式不对的问题
                 logging.info(f"{news_title}的字段格式错误")
             try:
                 db.session.add(news_keyword_to_add)
@@ -75,7 +75,6 @@ class NewsBase(ABC):
                 db.session.rollback()
                 logging.info(f"<{news_title}>已经在数据库内存在")
             logging.info(f"已添加<{news_title}>，完成进度{(n + 1) / total_news}")
-
 
     @abstractmethod
     def get_all_news(self, keyword: str, limit_page: int = 100):  # default 100 news
@@ -122,12 +121,12 @@ class NewsBase(ABC):
         pass
 
     @abstractmethod
-    def get_author(self,news:BeautifulSoup) -> str:
+    def get_author(self, news: BeautifulSoup) -> str:
         pass
 
     @staticmethod
-    def get_news_uuid3(news_title:str):
-        return uuid.uuid3(uuid.NAMESPACE_URL,news_title)
+    def get_news_uuid3(news_title: str):
+        return uuid.uuid3(uuid.NAMESPACE_URL, news_title)
 
 
 class ChainNews(NewsBase):
@@ -176,9 +175,8 @@ class ChainNews(NewsBase):
         source_code = requests.get(url).text
         return source_code
 
-    def get_author(self,news:BeautifulSoup) -> str:
+    def get_author(self, news: BeautifulSoup) -> str:
         return None
-
 
 
 class ChainNewSelected(ChainNews):
@@ -193,41 +191,41 @@ class ChainNewSelected(ChainNews):
     def get_news_type(self) -> str:
         return "selected"
 
+
 class ChainNewsArticle(ChainNews):
     def __init__(self):
-        super(ChainNewsArticle, self).__init__(path= "/search/article")
+        super(ChainNewsArticle, self).__init__(path="/search/article")
 
     def get_all_news(self, keyword: str, limit_page: int = 100) -> list:
         for i in range(limit_page):
             soup = self._make_soup({"q": keyword, "page": i + 1})
             self.raw_news_list.extend(soup.find_all("div", class_="feed-item feed-item-post"))
 
-
     def get_news_type(self) -> str:
         return "article"
 
+
 class ChainNewsNews(ChainNews):
     def __init__(self):
-        super(ChainNewsNews, self).__init__(path= "/search/news")
+        super(ChainNewsNews, self).__init__(path="/search/news")
 
     def get_all_news(self, keyword: str, limit_page: int = 100) -> list:
         for i in range(limit_page):
             soup = self._make_soup({"q": keyword, "page": i + 1})
             self.raw_news_list.extend(soup.find_all("div", class_="feed-item feed-item-news"))
 
-
     def get_news_type(self) -> str:
         return "news"
 
-class ChainNewsPaper(ChainNews): #TODO 完成链闻论文数据的获取
+
+class ChainNewsPaper(ChainNews):  # TODO 完成链闻论文数据的获取
     def __init__(self):
-        super(ChainNewsPaper, self).__init__(path= "/search/news")
+        super(ChainNewsPaper, self).__init__(path="/search/news")
 
     def get_all_news(self, keyword: str, limit_page: int = 100) -> list:
         for i in range(limit_page):
             soup = self._make_soup({"q": keyword, "page": i + 1})
             self.raw_news_list.extend(soup.find_all("div", class_="feed-item feed-item-paper"))
-
 
     def get_news_type(self) -> str:
         return "paper"
@@ -235,4 +233,4 @@ class ChainNewsPaper(ChainNews): #TODO 完成链闻论文数据的获取
 
 if __name__ == '__main__':
     cn = ChainNewsNews()
-    print(cn.get_and_update_all_news(keyword="bitcoin", limit_page=1))
+    print(cn.get_and_update_all_news(keyword="bitcoin", limit_page=2))
